@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+###############################################################################
+#
+# Munin plugin to monitor Zend OPCache <http://php.net/manual/en/book.opcache.php>
+#
+# Installation:
+#  1. Copy munin_opcache.php file onto server and verify you can hit it in a browser
+#  2. Add to Munin config:
+# 
+# [opcache_stats*]
+# env.URL http://localhost:808/opcache/munin_opcache.php
+###############################################################################
+# Settigs required for autoconf
+#%# family=auto
+#%# capabilities=autoconf suggest
+
+import json
+import os
+import sys
+import subprocess
+
+CACHEDIR = os.environ['MUNIN_PLUGSTATE']
+CACHEFILE = 'opcache-stats'
+WGET_PATH = '/usr/bin/wget'
+URL = os.environ['URL']
+
+def report():
+  cache_file = os.path.join(CACHEDIR, CACHEFILE)  
+  raw_data = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+URL+'"', shell=True)
+  parsed_data = json.loads(raw_data)
+  
+  if os.path.isfile(cache_file) == True:
+    f = file(cache_file, "r")
+    file_data = f.read()
+    file_data = json.loads(file_data)
+    parsed_data['opcache_statistics']['_hits'] = parsed_data['opcache_statistics']['hits']
+    parsed_data['opcache_statistics']['hits'] = parsed_data['opcache_statistics']['_hits'] - file_data['hits']
+    
+    f = file(cache_file, "w")
+    file_data = "{\"hits\": "+`parsed_data['opcache_statistics']['_hits']`+"}"
+    f.write(file_data)
+  else:
+    f = file(cache_file, "w")
+    file_data = "{\"hits\": "+`parsed_data['opcache_statistics']['hits']`+"}"
+    f.write(file_data)
+    parsed_data['opcache_statistics']['hits'] = 0
+  
+  print "multigraph opcache_stats_memory"
+  print "mem_used.value", parsed_data['memory_usage']['used_memory']
+  print "mem_free.value", parsed_data['memory_usage']['free_memory']
+  print "mem_wasted.value", parsed_data['memory_usage']['wasted_memory']
+  
+  print "\nmultigraph opcache_stats_keys"
+  print "keys_used.value", parsed_data['interned_strings_usage']['used_memory']
+  print "keys_free.value", parsed_data['interned_strings_usage']['free_memory']
+  
+  print "\nmultigraph opcache_stats_restarts"
+  print "oom_restarts.value", parsed_data['opcache_statistics']['oom_restarts']
+  print "hash_restarts.value", parsed_data['opcache_statistics']['hash_restarts']
+  print "manual_restarts.value", parsed_data['opcache_statistics']['manual_restarts']
+  
+  print "\nmultigraph opcache_stats_hitrate"
+  print "hitrate.value", parsed_data['opcache_statistics']['opcache_hit_rate']
+  
+  print "\nmultigraph opcache_stats_hits"
+  print "hits.value", parsed_data['opcache_statistics']['hits']
+  
+def config():
+  print """multigraph opcache_stats_memory
+graph_title OPcache Memory usage
+graph_args -l 0 --base 1024
+graph_vlabel Memory usage
+graph_category php
+graph_order mem_used mem_wasted mem_free
+graph_total Total
+mem_used.label Memory Used
+mem_used.draw AREA
+mem_used.min 0
+mem_wasted.label Wasted Memory
+mem_wasted.draw STACK
+mem_wasted.min 0
+mem_free.label Memory Free
+mem_free.draw STACK
+mem_free.min 0
+
+multigraph opcache_stats_keys
+graph_title OPcache Keys usage
+graph_args -l 0 --base 1024
+graph_vlabel Keys usage
+graph_category php
+graph_order keys_used keys_free
+graph_total Total
+keys_used.label Keys Used
+keys_used.draw AREA
+keys_used.min 0
+keys_free.label Keys Free
+keys_free.draw STACK
+keys_free.min 0
+
+multigraph opcache_stats_restarts
+graph_title OPcache Restarts
+graph_args -l 0 --base 1024
+graph_scale no
+graph_vlabel OPCache Restarts
+graph_category php
+graph_order oom_restarts hash_restarts manual_restarts
+oom_restarts.label Out Of Memory Restarts
+oom_restarts.draw LINE1
+oom_restarts.min 0
+hash_restarts.label Hash overflow restarts
+hash_restarts.draw LINE1
+hash_restarts.min 0
+manual_restarts.label Manual calls to opcache_reset()
+manual_restarts.draw LINE1
+manual_restarts.min 0
+
+multigraph opcache_stats_count
+graph_title OPcache Cached scripts/keys
+graph_vlabel OPcache Cached scripts/keys (int)
+graph_category php
+graph_order cached_scripts cached_keys
+cached_scripts.label Cached scripts
+cached_scripts.draw LINE2
+cached_scripts.min 0
+cached_keys.label Cached keys
+cached_keys.draw LINE2
+cached_keys.min 0
+
+multigraph opcache_stats_hitrate
+graph_title OPcache hitrate
+graph_scale no
+graph_vlabel OPcache hitrate (%)
+graph_category php
+graph_order hitrate
+hitrate.label Hitrate
+hitrate.type GAUGE
+hitrate.draw LINE1
+hitrate.min 0
+
+multigraph opcache_stats_hits
+graph_title OPcache hits per second
+graph_scale no
+graph_vlabel OPcache hits per second (int)
+graph_category php
+graph_order hits
+hits.label Hits
+hits.type GAUGE
+hits.draw LINE1
+hits.min 0
+"""
+
+def main():
+    if len(sys.argv)>1:
+        command = sys.argv[1]
+    else:
+        command = ""
+    if command=='config':
+        config()
+    elif command=='suggest':
+        print 'memory'
+    elif command=='autoconf':
+        if os.environ['URL'] == None:
+            print "no (edit URL config in header file !)"
+            sys.exit(1)
+        if os.environ['URL'] != '':
+            print "yes"
+    else:
+        report()
+
+if __name__ == "__main__":
+    main()
