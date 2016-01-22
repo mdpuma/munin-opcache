@@ -7,8 +7,8 @@
 #  1. Copy munin_opcache.php file onto server and verify you can hit it in a browser
 #  2. Add to Munin config:
 # 
-# [opcache_stats*]
-# env.URL http://localhost:808/opcache/munin_opcache.php
+# [opcache_stats_]
+# env.url http://localhost:808/opcache/munin_opcache.php
 ###############################################################################
 # Settigs required for autoconf
 #%# family=auto
@@ -18,17 +18,23 @@ import json
 import os
 import sys
 import subprocess
+import re
 
 CACHEDIR = os.environ['MUNIN_PLUGSTATE']
 CACHEFILE = 'opcache-stats'
 WGET_PATH = '/usr/bin/wget'
-URL = os.environ['URL']
 
 def report():
-  cache_file = os.path.join(CACHEDIR, CACHEFILE)  
-  raw_data = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+URL+'"', shell=True)
-  parsed_data = json.loads(raw_data)
+  if os.environ['url'] == None:
+    print "Not configured env.url"
+    sys.exit(1)
   
+  url = os.environ['url']
+  raw_output = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+url+'"', shell=True)
+  parsed_data = json.loads(raw_output)
+  parsed_data['php_version_'] = re.sub("-|\.", "_", parsed_data['php_version'])
+  
+  cache_file = os.path.join(CACHEDIR, CACHEFILE+'_'+parsed_data['php_version_'])  
   if os.path.isfile(cache_file) == True:
     f = file(cache_file, "r")
     file_data = f.read()
@@ -44,62 +50,77 @@ def report():
     file_data = "{\"hits\": "+`parsed_data['opcache_statistics']['hits']`+"}"
     f.write(file_data)
     parsed_data['opcache_statistics']['hits'] = 0
-  
-  print "multigraph opcache_stats_memory"
+    
+  print "multigraph opcache_"+parsed_data['php_version_']+"_memory"
   print "mem_used.value", parsed_data['memory_usage']['used_memory']
   print "mem_free.value", parsed_data['memory_usage']['free_memory']
   print "mem_wasted.value", parsed_data['memory_usage']['wasted_memory']
   
-  print "\nmultigraph opcache_stats_keys"
+  print "\nmultigraph opcache_"+parsed_data['php_version_']+"_keys"
   print "keys_used.value", parsed_data['interned_strings_usage']['used_memory']
   print "keys_free.value", parsed_data['interned_strings_usage']['free_memory']
   
-  print "\nmultigraph opcache_stats_restarts"
+  print "\nmultigraph opcache_"+parsed_data['php_version_']+"_restarts"
   print "oom_restarts.value", parsed_data['opcache_statistics']['oom_restarts']
   print "hash_restarts.value", parsed_data['opcache_statistics']['hash_restarts']
   print "manual_restarts.value", parsed_data['opcache_statistics']['manual_restarts']
   
-  print "\nmultigraph opcache_stats_hitrate"
+  print "\nmultigraph opcache_"+parsed_data['php_version_']+"_count"
+  print "cached_scripts.value", parsed_data['opcache_statistics']['num_cached_scripts']
+  print "cached_keys.value", parsed_data['opcache_statistics']['num_cached_keys']
+  
+  print "\nmultigraph opcache_"+parsed_data['php_version_']+"_hitrate"
   print "hitrate.value", parsed_data['opcache_statistics']['opcache_hit_rate']
   
-  print "\nmultigraph opcache_stats_hits"
+  print "\nmultigraph opcache_"+parsed_data['php_version_']+"_hits"
   print "hits.value", parsed_data['opcache_statistics']['hits']
   
 def config():
-  print """multigraph opcache_stats_memory
-graph_title OPcache Memory usage
-graph_args -l 0 --base 1024
+  if os.environ['url'] == None:
+    print "Not configured env.url"
+    sys.exit(1)
+  
+  url = os.environ['url']
+  raw_data = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+url+'"', shell=True)
+  parsed_data = json.loads(raw_data)
+  parsed_data['php_version_'] = re.sub("-|\.", "_", parsed_data['php_version'])
+    
+  print "multigraph opcache_"+parsed_data['php_version_']+"_memory"
+  print "graph_title OPcache ("+parsed_data['php_version']+") Memory usage"
+  print """graph_args -l 0 --base 1024
 graph_vlabel Memory usage
 graph_category php
 graph_order mem_used mem_wasted mem_free
 graph_total Total
-mem_used.label Memory Used
+mem_used.label Used
 mem_used.draw AREA
 mem_used.min 0
-mem_wasted.label Wasted Memory
+mem_wasted.label Wasted 
 mem_wasted.draw STACK
 mem_wasted.min 0
-mem_free.label Memory Free
+mem_free.label Free
 mem_free.draw STACK
 mem_free.min 0
+"""
 
-multigraph opcache_stats_keys
-graph_title OPcache Keys usage
-graph_args -l 0 --base 1024
+  print "multigraph opcache_"+parsed_data['php_version_']+"_keys"
+  print "graph_title OPcache ("+parsed_data['php_version']+") Keys usage"
+  print """graph_args -l 0 --base 1024
 graph_vlabel Keys usage
 graph_category php
 graph_order keys_used keys_free
 graph_total Total
-keys_used.label Keys Used
+keys_used.label Used
 keys_used.draw AREA
 keys_used.min 0
-keys_free.label Keys Free
+keys_free.label Free
 keys_free.draw STACK
 keys_free.min 0
+"""
 
-multigraph opcache_stats_restarts
-graph_title OPcache Restarts
-graph_args -l 0 --base 1024
+  print "multigraph opcache_"+parsed_data['php_version_']+"_restarts"
+  print "graph_title OPcache ("+parsed_data['php_version']+") Restarts"
+  print """graph_args -l 0 --base 1024
 graph_scale no
 graph_vlabel OPCache Restarts
 graph_category php
@@ -113,38 +134,40 @@ hash_restarts.min 0
 manual_restarts.label Manual calls to opcache_reset()
 manual_restarts.draw LINE1
 manual_restarts.min 0
+"""
 
-multigraph opcache_stats_count
-graph_title OPcache Cached scripts/keys
-graph_vlabel OPcache Cached scripts/keys (int)
+  print "multigraph opcache_"+parsed_data['php_version_']+"_count"
+  print "graph_title OPcache ("+parsed_data['php_version']+") Cached scripts/keys"
+  print """graph_vlabel Cached
 graph_category php
 graph_order cached_scripts cached_keys
-cached_scripts.label Cached scripts
+cached_scripts.label Scripts
 cached_scripts.draw LINE2
 cached_scripts.min 0
-cached_keys.label Cached keys
+cached_keys.label Keys
 cached_keys.draw LINE2
 cached_keys.min 0
+"""
 
-multigraph opcache_stats_hitrate
-graph_title OPcache hitrate
-graph_scale no
-graph_vlabel OPcache hitrate (%)
+  print "multigraph opcache_"+parsed_data['php_version_']+"_hitrate"
+  print "graph_title OPcache ("+parsed_data['php_version']+") hitrate"
+  print """graph_scale no
+graph_vlabel Hitrate
 graph_category php
 graph_order hitrate
 hitrate.label Hitrate
-hitrate.type GAUGE
 hitrate.draw LINE1
 hitrate.min 0
+"""
 
-multigraph opcache_stats_hits
-graph_title OPcache hits per second
-graph_scale no
-graph_vlabel OPcache hits per second (int)
+  print "multigraph opcache_"+parsed_data['php_version_']+"_hits"
+  print "graph_title OPcache ("+parsed_data['php_version']+") hits"
+  print """graph_scale no
+graph_vlabel Hits per second
 graph_category php
-graph_order hits
+graph_order hits/sec
 hits.label Hits
-hits.type GAUGE
+hits.type DERIVE
 hits.draw LINE1
 hits.min 0
 """
@@ -159,10 +182,10 @@ def main():
     elif command=='suggest':
         print 'memory'
     elif command=='autoconf':
-        if os.environ['URL'] == None:
-            print "no (edit URL config in header file !)"
+        if os.environ['url'] == None:
+            print "no (edit env.url config in header file !)"
             sys.exit(1)
-        if os.environ['URL'] != '':
+        if os.environ['url'] != '':
             print "yes"
     else:
         report()
