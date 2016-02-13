@@ -17,7 +17,7 @@
 import json
 import os
 import sys
-import subprocess
+from subprocess import PIPE,Popen
 import re
 
 CACHEDIR = os.environ['MUNIN_PLUGSTATE']
@@ -30,27 +30,11 @@ def report():
     sys.exit(1)
   
   url = os.environ['url']
-  raw_output = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+url+'"', shell=True)
+  proc = Popen(WGET_PATH+' -q -Yoff -O - "'+url+'"', stdout=PIPE, shell=True)
+  raw_output = proc.communicate()[0]
   parsed_data = json.loads(raw_output)
   parsed_data['php_version_'] = re.sub("-|\.", "_", parsed_data['php_version'])
   
-  cache_file = os.path.join(CACHEDIR, CACHEFILE+'_'+parsed_data['php_version_'])  
-  if os.path.isfile(cache_file) == True:
-    f = file(cache_file, "r")
-    file_data = f.read()
-    file_data = json.loads(file_data)
-    parsed_data['opcache_statistics']['_hits'] = parsed_data['opcache_statistics']['hits']
-    parsed_data['opcache_statistics']['hits'] = parsed_data['opcache_statistics']['_hits'] - file_data['hits']
-    
-    f = file(cache_file, "w")
-    file_data = "{\"hits\": "+`parsed_data['opcache_statistics']['_hits']`+"}"
-    f.write(file_data)
-  else:
-    f = file(cache_file, "w")
-    file_data = "{\"hits\": "+`parsed_data['opcache_statistics']['hits']`+"}"
-    f.write(file_data)
-    parsed_data['opcache_statistics']['hits'] = 0
-    
   print "multigraph opcache_"+parsed_data['php_version_']+"_memory"
   print "mem_used.value", parsed_data['memory_usage']['used_memory']
   print "mem_free.value", parsed_data['memory_usage']['free_memory']
@@ -81,8 +65,10 @@ def config():
     sys.exit(1)
   
   url = os.environ['url']
-  raw_data = subprocess.check_output(WGET_PATH+' -q -Yoff -O - "'+url+'"', shell=True)
-  parsed_data = json.loads(raw_data)
+  
+  proc = Popen(WGET_PATH+' -q -Yoff -O - "'+url+'"', stdout=PIPE, shell=True)
+  raw_output = proc.communicate()[0]
+  parsed_data = json.loads(raw_output)
   parsed_data['php_version_'] = re.sub("-|\.", "_", parsed_data['php_version'])
     
   print "multigraph opcache_"+parsed_data['php_version_']+"_memory"
